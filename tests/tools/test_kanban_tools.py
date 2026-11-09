@@ -120,10 +120,34 @@ def test_kanban_tools_visible_with_toolset_config(monkeypatch, tmp_path):
 # Handler happy paths
 # ---------------------------------------------------------------------------
 
+#: Dispatcher-injected kanban env vars that must not leak into this
+#: module's isolated per-test board. ``tests/conftest.py`` blanks the
+#: path pins (HERMES_KANBAN_DB / _BOARD / _WORKSPACES_ROOT / _TASK), but
+#: these two survive when the suite runs inside a dispatched worker:
+#:
+#: * ``HERMES_KANBAN_RUN_ID`` — the fixture sets ``HERMES_KANBAN_TASK``
+#:   to its own task id, so ``_worker_run_id()``
+#:   (tools/kanban_tools.py:102-115) treats the inherited run id as the
+#:   fixture task's run and passes it as ``expected_run_id`` into
+#:   ``complete_task`` / ``block_task`` (tools/kanban_tools.py:403,481).
+#:   No such run exists in the isolated DB, so the handler answers
+#:   ``{"error": "could not complete ..."}`` instead of ``{"ok": ...}``
+#:   and the tests die with ``KeyError: 'ok'``.
+#: * ``HERMES_KANBAN_CLAIM_LOCK`` — ``_handle_heartbeat``
+#:   (tools/kanban_tools.py:524) extends the outer claim instead of the
+#:   fixture task's claim.
+_INHERITED_WORKER_ENV = (
+    "HERMES_KANBAN_RUN_ID",
+    "HERMES_KANBAN_CLAIM_LOCK",
+)
+
+
 @pytest.fixture
 def worker_env(monkeypatch, tmp_path):
     """Simulate being a worker: HERMES_HOME isolated, HERMES_KANBAN_TASK set
     after we've created the task."""
+    for _var in _INHERITED_WORKER_ENV:
+        monkeypatch.delenv(_var, raising=False)
     home = tmp_path / ".hermes"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
