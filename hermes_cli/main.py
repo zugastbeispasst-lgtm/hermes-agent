@@ -5560,7 +5560,15 @@ def cmd_kanban(args):
     """Multi-profile collaboration board."""
     from hermes_cli.kanban import kanban_command
 
-    return kanban_command(args)
+    rc = kanban_command(args)
+    # `main()` calls `args.func(args)` without inspecting the return value,
+    # so without this the CLI would exit 0 even when the subcommand failed
+    # (e.g. `worker-slot` refusing to start because the gateway dispatcher
+    # still owns the queue). Supervisors read that exit code — systemd's
+    # Restart=on-failure depends on it. Slash-command callers go through
+    # `run_slash`, which catches SystemExit.
+    if rc:
+        sys.exit(int(rc))
 
 
 def cmd_hooks(args):

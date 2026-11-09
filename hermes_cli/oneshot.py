@@ -199,6 +199,24 @@ def run_oneshot(
     return 0
 
 
+def run_prompt_inprocess(prompt: str, **kwargs) -> str:
+    """Run one prompt through an in-process :class:`AIAgent` and return the reply.
+
+    Public, side-effect-free wrapper around :func:`_run_agent` for callers
+    that already are a long-lived process and must **not** spawn a
+    ``hermes`` subprocess per unit of work. The persistent kanban worker
+    slot (``hermes kanban worker-slot``) is the first such caller: it
+    reuses this interpreter, its config load, and its credential pool
+    across consecutive cards.
+
+    Unlike :func:`run_oneshot` this does **not** touch stdout/stderr
+    redirection, does **not** disable logging, and does **not** force
+    ``HERMES_YOLO_MODE`` — the caller owns its process globals and is
+    responsible for setting the per-task environment *before* calling.
+    """
+    return _run_agent(prompt, **kwargs) or ""
+
+
 def _create_session_db_for_oneshot():
     """Best-effort SessionDB for ``hermes -z`` / oneshot mode.
 

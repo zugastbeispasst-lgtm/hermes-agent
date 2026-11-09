@@ -4629,6 +4629,32 @@ class GatewayRunner:
             logger.warning("kanban dispatcher: cannot load config (%s); disabled", exc)
             return
         kanban_cfg = cfg.get("kanban", {}) if isinstance(cfg, dict) else {}
+
+        # worker_mode decides who owns the queue. With `persistent`, a
+        # separate `hermes kanban worker-slot` process claims cards and
+        # runs them in-process; this watcher must stay completely idle or
+        # both consumers would claim (and double-run) the same card.
+        # `dispatcher` — and an absent/unknown key — keeps today's
+        # behaviour, which is why the mode is read once here at boot.
+        try:
+            from hermes_cli import kanban_slot as _ks
+
+            _worker_mode = _ks.read_worker_mode(cfg)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "kanban dispatcher: cannot resolve kanban.worker_mode (%s); "
+                "assuming %r", exc, "dispatcher",
+            )
+            _worker_mode = None
+        if _worker_mode is not None and _worker_mode.is_persistent:
+            logger.info(
+                "kanban dispatcher: idle (worker_mode=persistent) — the queue is "
+                "owned by `hermes kanban worker-slot`"
+            )
+            return
+        if _worker_mode is not None:
+            logger.info("kanban dispatcher: %s", _worker_mode.describe())
+
         if not kanban_cfg.get("dispatch_in_gateway", True):
             logger.info(
                 "kanban dispatcher: disabled via config kanban.dispatch_in_gateway=false"
