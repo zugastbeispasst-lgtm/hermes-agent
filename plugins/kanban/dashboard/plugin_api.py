@@ -605,12 +605,34 @@ def update_task(task_id: str, payload: UpdateTaskBody, board: Optional[str] = Qu
             s = payload.status
             ok = True
             if s == "done":
-                ok = kanban_db.complete_task(
-                    conn, task_id,
-                    result=payload.result,
-                    summary=payload.summary,
-                    metadata=payload.metadata,
-                )
+                try:
+                    ok = kanban_db.complete_task(
+                        conn, task_id,
+                        result=payload.result,
+                        summary=payload.summary,
+                        metadata=payload.metadata,
+                    )
+                except kanban_db.UnboundVerdictError as exc:
+                    # §2.4 / D-051: a qa verdict that isn't bound to a
+                    # commit is a *recoverable client error*, not a server
+                    # fault. Nothing was mutated (the task is still
+                    # running), so surface a clean 400 with the guard
+                    # fields instead of letting the exception escape the
+                    # endpoint as an unhandled 500 + traceback. Mirrors
+                    # the ValueError → 400 handling in ``add_link``.
+                    preview_text = (payload.summary or payload.result or "").strip()
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "message": str(exc),
+                            "missing": list(exc.missing),
+                            "invalid": list(exc.invalid),
+                            "summary_preview": (
+                                preview_text.splitlines()[0][:200]
+                                if preview_text else None
+                            ),
+                        },
+                    )
             elif s == "blocked":
                 ok = kanban_db.block_task(conn, task_id, reason=payload.block_reason)
             elif s == "ready":
