@@ -31,6 +31,7 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
 from hermes_cli import kanban_db as kb
 
@@ -433,3 +434,113 @@ def test_cli_force_flag_is_parsed():
     ns_plain = root.parse_args(["kanban", "complete", "t_abc123"])
     assert ns_plain.force is False
     assert ns_plain.force_reason is None
+
+
+# ---------------------------------------------------------------------------
+# Dashboard path: PATCH /tasks/{id} (plugins/kanban/dashboard/plugin_api.py)
+#
+# Rework #1 (QA-FAIL t_f9cc8179, MAJOR): the endpoint did not catch
+# UnboundVerdictError, so the exception escaped the handler -> HTTP 500
+# plus traceback instead of a clean 4xx with the guard text. It must be a
+# 400, the task must stay `running` (rejection is not terminal), and
+# non-qa cards must behave exactly as before.
+# ---------------------------------------------------------------------------
+
+def _patch_task(tid: str, **fields):
+    """Call the dashboard ``PATCH /tasks/{id}`` handler in-process.
+
+    The FastAPI ``TestClient`` harness is unusable in this environment
+    (starlette 0.27 vs httpx 0.28), and the endpoint body is a plain
+    sync function anyway: calling it directly exercises exactly the
+    code path that used to leak ``UnboundVerdictError`` as an
+    unhandled 500.
+    """
+    from plugins.kanban.dashboard import plugin_api as pa
+
+    try:
+        return pa.update_task(tid, pa.UpdateTaskBody(**fields), None)
+    except HTTPException as exc:
+        return exc
+
+
+def test_dashboard_update_task_unbound_verdict_is_400_not_500(board):
+    tid = board("qa")
+    result = _patch_task(tid, status="done", summary="verdict without a binding")
+
+    assert isinstance(result, HTTPException), result
+    assert result.status_code == 400, result.detail
+    detail = result.detail
+    assert set(detail["missing"]) == {"reviewed_commit", "head_at_finish"}
+    assert detail["invalid"] == []
+    assert detail["summary_preview"] == "verdict without a binding"
+    assert "completion blocked" in detail["message"]
+
+    # Rejection is not terminal — no state change, retry stays possible.
+    assert _status(tid) == "running"
+    assert "completion_blocked_unbound_verdict" in _kinds(tid)
+
+
+def test_dashboard_update_task_malformed_sha_is_400(board):
+    tid = board("qa")
+    result = _patch_task(
+        tid,
+        status="done",
+        summary="bad sha",
+        metadata={"reviewed_commit": "HEAD", "head_at_finish": QA_SHA_HEAD},
+    )
+    assert result.status_code == 400, result.detail
+    assert result.detail["invalid"] == ["reviewed_commit"]
+    assert _status(tid) == "running"
+
+
+def test_dashboard_update_task_accepts_bound_verdict(board):
+    tid = board("qa")
+    result = _patch_task(
+        tid,
+        status="done",
+        summary="QA PASS",
+        metadata={
+            "verdict": "PASS",
+            "reviewed_commit": QA_SHA,
+            "head_at_finish": QA_SHA_HEAD,
+        },
+    )
+    assert not hasattr(result, "status_code"), result
+    assert result["task"]["status"] == "done"
+    assert _status(tid) == "done"
+
+
+def test_dashboard_update_task_non_qa_unchanged(board):
+    tid = board("coder-a")
+    result = _patch_task(tid, status="done", summary="coder handoff")
+    assert not hasattr(result, "status_code"), result
+    assert result["task"]["status"] == "done"
+    assert _status(tid) == "done"
+
+
+# ---------------------------------------------------------------------------
+# Forced-completion audit event is written atomically with the completion
+# (QA minor finding: the override event used to be written up-front, so a
+# subsequent completion failure left an orphan event behind).
+# ---------------------------------------------------------------------------
+
+def test_force_override_event_is_not_orphaned_by_failed_completion(board):
+    tid = board("qa")
+    # First completion (properly bound) makes the task terminal.
+    assert _complete(
+        tid,
+        summary="first",
+        metadata={"reviewed_commit": QA_SHA, "head_at_finish": QA_SHA_HEAD},
+    ) is True
+    assert _status(tid) == "done"
+
+    # A forced completion on the now-terminal task must fail cleanly and
+    # must NOT leave a completion_override event without a completion.
+    assert _complete(
+        tid,
+        summary="forced again",
+        metadata={},
+        force=True,
+        force_reason="audit ordering check",
+    ) is False
+    assert "completion_override" not in _kinds(tid)

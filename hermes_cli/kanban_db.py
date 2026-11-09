@@ -2503,6 +2503,14 @@ def complete_task(
     ).fetchone()
     if task_row is None:
         return False
+    # A forced (human/CEO) completion of a qa card without a bound
+    # verdict must leave an audit trail — but only if the completion
+    # actually lands. Writing it up-front would leave an orphan
+    # ``completion_override`` event behind when the subsequent write
+    # txn bails out (unknown/terminal id ⇒ ``return False``), so stash
+    # the payload here and emit it inside the successful completion
+    # transaction below.
+    override_payload: Optional[dict] = None
     if str(task_row["assignee"] or "").strip().lower() == "qa":
         missing, invalid = _qa_binding_gaps(metadata)
         if force:
@@ -2513,16 +2521,12 @@ def complete_task(
                     "completing a qa task without a bound verdict needs "
                     "an auditable justification"
                 )
-            with write_txn(conn):
-                _append_event(
-                    conn, task_id, "completion_override",
-                    {
-                        "task_id": task_id,
-                        "reason": reason_clean,
-                        "missing": missing,
-                        "assignee": "qa",
-                    },
-                )
+            override_payload = {
+                "task_id": task_id,
+                "reason": reason_clean,
+                "missing": missing,
+                "assignee": "qa",
+            }
         elif missing or invalid:
             preview_text = (summary or result or "").strip()
             with write_txn(conn):
@@ -2635,6 +2639,15 @@ def complete_task(
             completed_payload,
             run_id=run_id,
         )
+        # Forced qa completion: the override audit event is written in
+        # the same transaction as the completion it justifies, so it can
+        # never be orphaned by a rejected/failed completion above.
+        if override_payload is not None:
+            _append_event(
+                conn, task_id, "completion_override",
+                override_payload,
+                run_id=run_id,
+            )
     # Prose-scan the summary + result for t_<hex> references that do
     # not resolve. Advisory — does not block the completion. Runs in
     # its own txn so the completion itself is already durable by the
