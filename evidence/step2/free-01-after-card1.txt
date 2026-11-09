@@ -1,0 +1,6 @@
+--- after card 1 (2026-11-09T09:49:43Z, epoch 1794217783) ---
+VmHWM:	  152552 kB
+VmRSS:	  152552 kB
+               total        used        free      shared  buff/cache   available
+Mem:            3398        1737         735         346        1820        1660
+Swap:              0           0           0

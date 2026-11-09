@@ -1,0 +1,85 @@
+{
+  "card": "t_9966d66e",
+  "ws": "WS2 live probe (AC3-AC6)",
+  "date_utc": "2026-11-09",
+  "board": "slot-test",
+  "board_db": "/home/adam/.hermes/kanban/boards/slot-test/kanban.db",
+  "entry_point": "hermes kanban --board slot-test worker-slot",
+  "code_under_test": "feat/persistent-worker-slot (WS1, parent card t_4c4c0bbc)",
+  "config_source": {
+    "how": "copy of ~/.hermes/profiles/coder-d/config.yaml as probe HERMES_HOME (/tmp/slot-probe/home) with kanban.worker_mode: persistent",
+    "proof": "slot stderr: 'kanban worker-slot: worker_mode=persistent (source: config.yaml kanban.worker_mode)'",
+    "production_config_touched": false,
+    "gateway_restarted": false
+  },
+  "ac3_ram": {
+    "free_before_slot_mb": {"total": 3398, "used": 1615, "available": 1782, "epoch": 1794217773},
+    "after_card1": {"epoch": 1794217783, "slot_vmhwm_kb": 152552, "slot_vmrss_kb": 152552, "mem_available_mb": 1660},
+    "during_card2_before_sigkill": {"epoch": 1794217788, "slot_vmhwm_kb": 153424, "slot_vmrss_kb": 153424, "mem_available_mb": 1653},
+    "after_card2_resume": {"epoch": 1794217825, "slot_vmhwm_kb": 163936, "slot_vmrss_kb": 163936, "mem_available_mb": 1644},
+    "peak_vmhwm_mb": 160.1,
+    "target_band_gb": [0.4, 0.6],
+    "target_met": false,
+    "finding": "Measured peak RSS is ~0.145-0.156 GiB, i.e. BELOW the 0.4-0.6 GB target band (not above it). The 0.4-0.6 GB estimate in the report is not reproduced by this workload; report the deviation instead of reformulating the AC."
+  },
+  "ac4_resume": {
+    "task": "t_6f91a37a",
+    "run_id": 2,
+    "run_rows_for_task": 1,
+    "started_at_before_kill": 1794217781,
+    "started_at_after_resume": 1794217781,
+    "started_at_unchanged": true,
+    "ended_at": 1794217824,
+    "sigkill_epoch": 1794217788,
+    "resumed_event": {"id": 9, "epoch": 1794217812, "previous_lock": "slot:1002319", "new_lock": "slot:1002462"},
+    "pre_kill_comment": "pre-kill checkpoint: out file not yet written",
+    "resume_comment": "resume proof \u2014 quoting my pre-kill comment verbatim: \"pre-kill checkpoint: out file not yet written\"",
+    "resume_prompt_used": "build_slot_prompt(resumed=True) embeds build_worker_context; worker quoted the pre-kill comment as instructed"
+  },
+  "ac5_rollback": {
+    "runbook": "docs/runbooks/worker-slot-rollback.md",
+    "t0_epoch": 1794217859,
+    "t1_epoch": 1794217888,
+    "duration_s": 29,
+    "limit_s": 300,
+    "steps": [
+      "SIGTERM to slot pid 1002462, pidfile released empty",
+      "probe config: worker_mode=dispatcher, dispatch_in_gateway=true, max_spawn=2",
+      "hermes kanban --board slot-test dispatch --max 2"
+    ],
+    "dispatching_claimer": "hermes:1002707",
+    "spawned": ["t_48fd0c9f -> coder-d"],
+    "next_card_completed": true,
+    "gateway_restart_note": "Production rollback needs `hermes gateway restart` (config read at boot). The probe substituted one explicit dispatcher pass because restarting the gateway would kill this very job; production step is documented in the runbook."
+  },
+  "ac6_integrity": {
+    "runs_per_test_card": {"t_0c9e09df": 1, "t_6f91a37a": 1, "t_48fd0c9f": 1},
+    "resume_counted_as_same_run": true,
+    "production_board": {
+      "path": "/home/adam/.hermes/kanban/boards/codeforge/kanban.db",
+      "before": {"tasks": 278, "task_runs": 270, "task_comments": 316, "task_events": 1713, "sha256": "d5b0cbbbc9b9d3c37a0d3e3a5ecd4ea1f950bc9ba03a03fa5fe27a2b4bac6d9d"},
+      "after": {"tasks": 278, "task_runs": 270, "task_comments": 316, "task_events": 1713, "sha256": "d5b0cbbbc9b9d3c37a0d3e3a5ecd4ea1f950bc9ba03a03fa5fe27a2b4bac6d9d"},
+      "equal": true
+    }
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "title": "Gateway dispatcher enumerates every non-archived board",
+      "detail": "gateway/run.py::_kanban_dispatcher_watcher -> _tick_once calls list_boards(include_archived=False) and dispatch_once per board every tick. A new board is claimed by the gateway on the next tick, so 'test board unknown to the gateway' is NOT an isolation mechanism (attempt A: card t_70c911ff was claimed by hermes:994636, lock of the gateway). Mitigated for this probe by setting board.json archived=true; documented in the runbook."
+    },
+    {
+      "id": "F2",
+      "severity": "info",
+      "title": "RAM target band not reproduced",
+      "detail": "Peak VmHWM 152-164 MB vs. 0.4-0.6 GB target; single in-process worker, one card at a time."
+    }
+  ],
+  "caveats": [
+    "Attempt A (unarchived board) is kept as evidence and was not used for the numbers above.",
+    "The probe config is a copy under /tmp/slot-probe/home; ~/.hermes/profiles/*/config.yaml and the gateway were not modified or restarted.",
+    "Test cards were archived after the run; the slot-test board directory was archived under ~/.hermes/kanban/boards/_archived/.",
+    "The in-process worker for assignee coder-d loads the copied coder-d config.yaml/.env; profile-only assets (skills dirs) are not copied."
+  ]
+}

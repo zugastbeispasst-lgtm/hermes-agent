@@ -1,0 +1,2 @@
+/tmp/slot-probe/home/config.yaml -> worker_mode=dispatcher dispatch_in_gateway=True max_spawn=2
+/tmp/slot-probe/home/profiles/coder-d/config.yaml -> worker_mode=dispatcher dispatch_in_gateway=True max_spawn=2

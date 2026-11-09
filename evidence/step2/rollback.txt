@@ -1,0 +1,6 @@
+rollback t0: 1794217859
+rollback t1: 1794217888
+duration_s: 29
+               total        used        free      shared  buff/cache   available
+Mem:            3398        1846         605         397        1894        1551
+Swap:              0           0           0

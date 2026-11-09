@@ -1,0 +1,7 @@
+Reclaimed:    0
+Crashed:      0
+Timed out:    0
+Auto-blocked: 0
+Promoted:     0
+Spawned:      1
+  - t_48fd0c9f  ->  coder-d  @ /home/adam/.hermes/kanban/boards/slot-test/workspaces/t_48fd0c9f

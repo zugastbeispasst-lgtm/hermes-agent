@@ -1,0 +1,9 @@
+card3:
+('t_48fd0c9f', 'done', None)
+card3 runs:
+(3, 't_48fd0c9f', 'done', 1794217859, 1794217887, None)
+card3 events:
+('created', 1794217837, '{"assignee": "coder-d", "status": "ready", "parents": [], "tenant": null, "skills": null}')
+('claimed', 1794217859, '{"lock": "hermes:1002707", "expires": 1794218759, "run_id": 3}')
+('spawned', 1794217859, '{"pid": 1002709}')
+('completed', 1794217887, '{"result_len": 0, "summary": "probe card 1 ok"}')

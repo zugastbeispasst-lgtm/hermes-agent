@@ -1,0 +1,6 @@
+--- mid card 2, immediately before SIGKILL (2026-11-09T09:49:48Z, epoch 1794217788) ---
+VmHWM:	  153424 kB
+VmRSS:	  153424 kB
+               total        used        free      shared  buff/cache   available
+Mem:            3398        1744         729         346        1820        1653
+Swap:              0           0           0

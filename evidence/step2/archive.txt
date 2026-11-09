@@ -1,0 +1,5 @@
+Archived t_0c9e09df
+Archived t_6f91a37a
+Archived t_48fd0c9f
+Board 'slot-test' archived → /home/adam/.hermes/kanban/boards/_archived/slot-test-1794217980
+Recover by moving the directory back to <root>/kanban/boards/<slug>/.

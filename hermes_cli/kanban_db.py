@@ -2031,6 +2031,110 @@ def heartbeat_claim(
         return False
 
 
+def adopt_running_task(
+    conn: sqlite3.Connection,
+    task_id: str,
+    *,
+    ttl_seconds: int = DEFAULT_CLAIM_TTL_SECONDS,
+    claimer: Optional[str] = None,
+    worker_pid: Optional[int] = None,
+) -> Optional[Task]:
+    """Re-attach to an orphaned ``running`` task **without** touching its run.
+
+    This is the DB half of "resume instead of re-run" for the persistent
+    worker slot (``hermes kanban worker-slot``). Where :func:`claim_task`
+    opens a brand-new ``task_runs`` row, this re-issues only the claim
+    lease: ``current_run_id`` stays put, the open run keeps its
+    ``started_at`` and its accumulated history, and a ``resumed`` event is
+    appended so the board shows who took over.
+
+    Refuses to adopt when:
+
+    * the task is not ``running``,
+    * it has no ``current_run_id``,
+    * that run is already closed (``ended_at IS NOT NULL``), or
+    * the claim CAS loses a race (another owner got there first).
+
+    Returns the refreshed ``Task`` on success, ``None`` otherwise.
+    """
+    now = int(time.time())
+    lock = claimer or _claimer_id()
+    expires = now + int(ttl_seconds)
+    pid = int(worker_pid) if worker_pid is not None else os.getpid()
+    with write_txn(conn):
+        row = conn.execute(
+            "SELECT current_run_id, claim_lock FROM tasks "
+            "WHERE id = ? AND status = 'running'",
+            (task_id,),
+        ).fetchone()
+        if row is None or row["current_run_id"] is None:
+            return None
+        run_id = int(row["current_run_id"])
+        run = conn.execute(
+            "SELECT id, ended_at FROM task_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        if run is None or run["ended_at"] is not None:
+            return None
+        cur = conn.execute(
+            "UPDATE tasks SET claim_lock = ?, claim_expires = ?, worker_pid = ? "
+            "WHERE id = ? AND status = 'running' "
+            "  AND current_run_id IS ? AND claim_lock IS ?",
+            (lock, expires, pid, task_id, run_id, row["claim_lock"]),
+        )
+        if cur.rowcount != 1:
+            return None
+        conn.execute(
+            "UPDATE task_runs SET claim_lock = ?, claim_expires = ?, worker_pid = ? "
+            "WHERE id = ? AND ended_at IS NULL",
+            (lock, expires, pid, run_id),
+        )
+        _append_event(
+            conn, task_id, "resumed",
+            {
+                "run_id": run_id,
+                "previous_lock": row["claim_lock"],
+                "lock": lock,
+                "expires": expires,
+                "worker_pid": pid,
+            },
+            run_id=run_id,
+        )
+        return get_task(conn, task_id)
+
+
+def resumable_running_tasks(conn: sqlite3.Connection) -> list[str]:
+    """Return ids of ``running`` tasks whose owner is gone (orphaned claim).
+
+    A task is orphaned when its recorded ``worker_pid`` is not alive, or —
+    for pid-less claims (``hermes kanban claim`` from a terminal) — when
+    the claim lease has expired. A task whose ``worker_pid`` is still
+    alive is **never** reported: that worker owns it (typically a
+    gateway-spawned subprocess) and stealing it would double-run the card.
+
+    Ordered like the dispatcher's ready queue (priority DESC, created_at
+    ASC) so a resumed slot drains the board in the same order.
+    """
+    now = int(time.time())
+    rows = conn.execute(
+        "SELECT id, claim_expires, worker_pid FROM tasks "
+        "WHERE status = 'running' "
+        "ORDER BY priority DESC, created_at ASC"
+    ).fetchall()
+    out: list[str] = []
+    for row in rows:
+        pid = row["worker_pid"]
+        if pid is not None and _pid_alive(int(pid)):
+            continue
+        if pid is None:
+            expires = row["claim_expires"]
+            if expires is not None and int(expires) >= now:
+                # Live (non-PID) lease — an operator terminal holds it.
+                continue
+        out.append(row["id"])
+    return out
+
+
 def release_stale_claims(
     conn: sqlite3.Connection,
     *,

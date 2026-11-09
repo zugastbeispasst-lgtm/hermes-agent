@@ -619,6 +619,29 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_gc.add_argument("--log-retention-days", type=int, default=30,
                       help="Delete worker log files older than N days (default: 30)")
 
+    # --- worker-slot ---
+    p_slot = sub.add_parser(
+        "worker-slot",
+        help="Persistent worker slot: drain ready cards one at a time in one process "
+             "(requires kanban.worker_mode: persistent)",
+    )
+    p_slot.add_argument("--once", action="store_true",
+                        help="Run a single claim+execute pass, then exit")
+    p_slot.add_argument("--dry-run", action="store_true",
+                        help="Show resumable + next-ready cards without claiming anything")
+    p_slot.add_argument("--max-ticks", type=int, default=None,
+                        help="Stop after N loop iterations (useful for smoke runs)")
+    p_slot.add_argument("--poll-interval", type=float,
+                        default=5.0,
+                        help="Seconds to sleep between empty board scans (default: 5)")
+    p_slot.add_argument("--ttl", type=int, default=kb.DEFAULT_CLAIM_TTL_SECONDS,
+                        help=f"Claim lease in seconds for slot-owned cards "
+                             f"(default: {kb.DEFAULT_CLAIM_TTL_SECONDS})")
+    p_slot.add_argument("--force", action="store_true",
+                        help="Start even when kanban.worker_mode is not 'persistent' "
+                             "(deliberate manual runs only — risks double-claim)")
+    p_slot.add_argument("--json", action="store_true")
+
     kanban_parser.set_defaults(_kanban_parser=kanban_parser)
     return kanban_parser
 
@@ -741,6 +764,7 @@ def kanban_command(args: argparse.Namespace) -> int:
         "context":  _cmd_context,
         "specify":  _cmd_specify,
         "gc":       _cmd_gc,
+        "worker-slot": _cmd_worker_slot,
     }
     handler = handlers.get(action)
     if not handler:
@@ -2135,6 +2159,78 @@ def _cmd_specify(args: argparse.Namespace) -> int:
     # --all: succeed if at least one promotion landed; exit 1 only when
     # every candidate failed (honest signal for scripts).
     return 0 if (ok_count > 0 or not ids) else 1
+
+
+def _cmd_worker_slot(args: argparse.Namespace) -> int:
+    """Run (or single-step) the persistent worker slot.
+
+    Opt-in alternative to the gateway's per-card subprocess dispatcher:
+    one long-lived process that drains ``ready`` cards sequentially and
+    resumes orphaned ``running`` cards instead of re-running them from
+    zero. Requires ``kanban.worker_mode: persistent`` — otherwise the
+    gateway dispatcher is the active owner and starting a second consumer
+    would double-claim every card.
+    """
+    from hermes_cli import kanban_slot as ks
+
+    setting = ks.read_worker_mode()
+    # AC1: the process must log where the effective mode came from.
+    print(f"kanban worker-slot: {setting.describe()}", file=sys.stderr)
+
+    if not setting.is_persistent and not getattr(args, "force", False):
+        print(
+            "kanban worker-slot: refusing to start — kanban.worker_mode is "
+            f"{setting.mode!r}. The gateway dispatcher owns the queue in that "
+            "mode, so a second consumer would double-claim. Set "
+            "`kanban.worker_mode: persistent` (then restart the gateway) or "
+            "pass --force for a deliberate manual run.",
+            file=sys.stderr,
+        )
+        return 2
+
+    slot = ks.WorkerSlot(
+        board=getattr(args, "board", None),
+        ttl_seconds=int(args.ttl),
+        poll_interval=float(args.poll_interval),
+    )
+    if getattr(args, "dry_run", False):
+        with slot.connect() as conn:
+            adoptable = kb.resumable_running_tasks(conn)
+            nxt = slot._next_ready(conn)
+        payload = {
+            "worker_mode": setting.mode,
+            "worker_mode_source": setting.source,
+            "resumable": adoptable,
+            "next_ready": nxt["id"] if nxt is not None else None,
+        }
+        print(json.dumps(payload, indent=2) if args.json else json.dumps(payload))
+        return 0
+
+    if getattr(args, "once", False):
+        tick = slot.run_once()
+        payload = {
+            "idle": tick.idle,
+            "task_id": tick.task_id,
+            "resumed": tick.resumed,
+            "outcome": tick.outcome,
+            "error": tick.error,
+            "adopted": list(tick.adopted),
+        }
+        if args.json:
+            print(json.dumps(payload))
+        elif tick.idle:
+            print("worker-slot: idle (nothing to do)")
+        else:
+            print(
+                f"worker-slot: {tick.task_id} "
+                f"{'resumed' if tick.resumed else 'claimed'} → {tick.outcome}"
+            )
+        return 0 if tick.outcome in (None, "completed", "done") else 1
+
+    max_ticks = getattr(args, "max_ticks", None)
+    cards = slot.serve(max_ticks=max_ticks)
+    print(f"worker-slot: stopped after {cards} card(s)")
+    return 0
 
 
 def _cmd_gc(args: argparse.Namespace) -> int:

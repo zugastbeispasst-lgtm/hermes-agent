@@ -1,0 +1,18 @@
+{
+  "id": "t_70c911ff",
+  "title": "SLOT-PROBE card 2 (crash-resume)",
+  "body": "Slot-Probe-Karte 2 (Crash-Resume-Probe).\nSchritt 1: Rufe kanban_comment(task_id=<deine task id>, body=\"pre-kill checkpoint: out file not yet written\") auf.\nSchritt 2: Fuehre im Terminal EINEN Befehl aus: sleep 25\nSchritt 3: Schreibe out/<DEINE-TASK-ID>.txt mit dem Inhalt OK.\nSchritt 4: kanban_complete(summary=\"probe card 2 ok\").\nWICHTIG falls du als RESUME laeufst (Prompt beginnt mit \"resume kanban task\"): wiederhole Schritt 1 NICHT neu, sondern zitiere in einem kanban_comment woertlich den Text deines Vor-Kill-Kommentars (\"pre-kill checkpoint: out file not yet written\") als Resume-Nachweis, dann Schritt 3 und 4.",
+  "assignee": "coder-d",
+  "status": "ready",
+  "priority": 0,
+  "tenant": null,
+  "workspace_kind": "scratch",
+  "workspace_path": null,
+  "created_by": "coder-a",
+  "created_at": 1794217644,
+  "started_at": null,
+  "completed_at": null,
+  "result": null,
+  "skills": [],
+  "max_retries": null
+}

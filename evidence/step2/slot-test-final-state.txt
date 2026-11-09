@@ -1,0 +1,32 @@
+== tasks ==
+('t_0c9e09df', 'done', None, None)
+('t_6f91a37a', 'done', None, None)
+('t_48fd0c9f', 'done', None, None)
+== task_runs ==
+(1, 't_0c9e09df', 'done', 1794217775, 1794217780)
+(2, 't_6f91a37a', 'done', 1794217781, 1794217824)
+(3, 't_48fd0c9f', 'done', 1794217859, 1794217887)
+== run count per task ==
+('t_0c9e09df', 1)
+('t_48fd0c9f', 1)
+('t_6f91a37a', 1)
+== comments ==
+('t_6f91a37a', 'coder-d', 'pre-kill checkpoint: out file not yet written')
+('t_6f91a37a', 'coder-d', 'resume proof — quoting my pre-kill comment verbatim: "pre-kill checkpoint: out file not yet written"')
+== events ==
+('t_0c9e09df', 'created', 1794217771)
+('t_6f91a37a', 'created', 1794217771)
+('t_0c9e09df', 'claimed', 1794217775)
+('t_0c9e09df', 'spawned', 1794217775)
+('t_0c9e09df', 'completed', 1794217780)
+('t_6f91a37a', 'claimed', 1794217781)
+('t_6f91a37a', 'spawned', 1794217781)
+('t_6f91a37a', 'commented', 1794217785)
+('t_6f91a37a', 'resumed', 1794217812)
+('t_6f91a37a', 'spawned', 1794217812)
+('t_6f91a37a', 'commented', 1794217821)
+('t_6f91a37a', 'completed', 1794217824)
+('t_48fd0c9f', 'created', 1794217837)
+('t_48fd0c9f', 'claimed', 1794217859)
+('t_48fd0c9f', 'spawned', 1794217859)
+('t_48fd0c9f', 'completed', 1794217887)

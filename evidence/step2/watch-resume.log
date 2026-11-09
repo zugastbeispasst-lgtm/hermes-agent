@@ -1,0 +1,16 @@
+resume slot pid: 1002462
+[1794217825] card2 status: done
+run rows for card2: [(2, 't_6f91a37a', 'done', 1794217781, 1794217824, None)]
+resumed events: [(9, 'resumed', 1794217812, '{"run_id": 2, "previous_lock": "slot:1002319", "lock": "slot:1002462", "expires": 1794218712, "worker_pid": 1002462}')]
+comments: [(1, 'coder-d', 'pre-kill checkpoint: out file not yet written'), (2, 'coder-d', 'resume proof — quoting my pre-kill comment verbatim: "pre-kill checkpoint: out file not yet written"')]
+task: [('t_6f91a37a', 'done', None)]
+--- after card 2 (resume) (2026-11-09T09:50:25Z, epoch 1794217825) ---
+VmHWM:	  163936 kB
+VmRSS:	  163936 kB
+               total        used        free      shared  buff/cache   available
+Mem:            3398        1753         716         346        1824        1644
+Swap:              0           0           0
+slot stopped cleanly (SIGTERM)
+final log:
+kanban worker-slot: worker_mode=persistent (source: config.yaml kanban.worker_mode)
+worker-slot: stopped after 1 card(s)

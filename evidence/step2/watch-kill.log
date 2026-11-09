@@ -1,0 +1,22 @@
+slot pid: 1002319
+[1794217783] waiting for card1 done
+[1794217783] card1 done
+--- after card 1 (2026-11-09T09:49:43Z, epoch 1794217783) ---
+VmHWM:	  152552 kB
+VmRSS:	  152552 kB
+               total        used        free      shared  buff/cache   available
+Mem:            3398        1737         735         346        1820        1660
+Swap:              0           0           0
+[1794217783] waiting for card2 comment event
+card2 comment events: 1; status: running
+--- mid card 2, immediately before SIGKILL (2026-11-09T09:49:48Z, epoch 1794217788) ---
+VmHWM:	  153424 kB
+VmRSS:	  153424 kB
+               total        used        free      shared  buff/cache   available
+Mem:            3398        1744         729         346        1820        1653
+Swap:              0           0           0
+run row before kill: [(2, 't_6f91a37a', 'running', 1794217781, None, 1002319)]
+[1794217788] SIGKILL sent to 1002319
+slot process gone
+task after kill: [('t_6f91a37a', 'running', 2, 1002319, 'slot:1002319')]
+run row after kill: [(2, 't_6f91a37a', 'running', 1794217781, None, 1002319)]

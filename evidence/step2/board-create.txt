@@ -1,0 +1,4 @@
+Board 'slot-test' created.
+  Display name: Slot Test
+  DB path:      /home/adam/.hermes/kanban/boards/slot-test/kanban.db
+  Use `hermes kanban boards switch slot-test` to make it current.
