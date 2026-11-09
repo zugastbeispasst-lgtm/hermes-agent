@@ -1,0 +1,41 @@
+Attempt A — finding: the gateway dispatcher enumerates ALL non-archived boards
+=============================================================================
+Date (UTC epoch): 1794217695
+Board under test: slot-test (/home/adam/.hermes/kanban/boards/slot-test/kanban.db)
+Slot pid: 1001993 (lock "slot:1001993")
+
+Observation (slot-test DB, task_events):
+  (3, t_86549e24, claimed,  1794217648, {"lock": "slot:1001993", "run_id": 1})
+  (4, t_86549e24, spawned,  1794217648, {"pid": 1001993})
+  (5, t_70c911ff, claimed,  1794217654, {"lock": "hermes:994636", "run_id": 2})
+  (6, t_70c911ff, spawned,  1794217654, {"pid": 1002006})
+
+Claimer "hermes:994636" is the gateway process (pid 994636). Card 2 was claimed
+by the GATEWAY's embedded dispatcher, not by the slot, while the slot was still
+finishing card 1 (run 1 ended_at 1794217658 > run 2 started_at 1794217654).
+
+Root cause (gateway/run.py, _kanban_dispatcher_watcher -> _tick_once):
+    boards = _kb.list_boards(include_archived=False)
+    for b in boards:
+        out.append((slug, _tick_once_for_board(slug)))
+The embedded dispatcher runs one dispatch_once per board on EVERY tick and
+enumerates the board root dynamically. A newly created board is therefore
+picked up on the next tick — there is no opt-out list.
+
+=> CEO assumption #1 / risk mitigation "Slot-Test nur auf slot-test, dessen
+   Pfad das Gateway nicht kennt" does NOT hold for boards: the DB file is
+   unknown to the gateway, but the board DIRECTORY is enumerated.
+
+Mitigation used for the clean run (no gateway stop, no production config edit):
+set "archived": true in slot-test/board.json. list_boards(include_archived=
+False) then skips the board, while an explicit `--board slot-test` (slot and
+rollback dispatcher) still resolves its directory. Evidence: board.json in
+this directory listing / config-source section.
+
+Consequence for production roll-out: switching `kanban.worker_mode` to
+persistent in ONE profile's config only idles the gateway dispatcher when the
+gateway boots with that config. With worker_mode=persistent the whole gateway
+stops dispatching for ALL boards (the watcher returns early), so a test board
+is safe in that mode — but in dispatcher mode there is no per-board isolation.
+
+This attempt is kept as evidence and was NOT used for AC3/AC4/AC6 numbers.

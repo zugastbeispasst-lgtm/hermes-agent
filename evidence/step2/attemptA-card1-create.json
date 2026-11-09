@@ -1,0 +1,18 @@
+{
+  "id": "t_86549e24",
+  "title": "SLOT-PROBE card 1",
+  "body": "Slot-Probe-Karte 1 (trivial). Schreibe die Datei out/<DEINE-TASK-ID>.txt (workspace-relativ) mit dem Inhalt OK und schliesse die Karte danach mit kanban_complete ab (summary: \"probe card 1 ok\"). Keine weiteren Schritte.",
+  "assignee": "coder-d",
+  "status": "ready",
+  "priority": 0,
+  "tenant": null,
+  "workspace_kind": "scratch",
+  "workspace_path": null,
+  "created_by": "coder-a",
+  "created_at": 1794217644,
+  "started_at": null,
+  "completed_at": null,
+  "result": null,
+  "skills": [],
+  "max_retries": null
+}

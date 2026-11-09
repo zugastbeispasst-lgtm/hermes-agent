@@ -1,0 +1,2 @@
+kanban worker-slot: worker_mode=persistent (source: config.yaml kanban.worker_mode)
+worker-slot: stopped after 1 card(s)
