@@ -190,6 +190,10 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
     # Kanban path/board pins must never leak from a developer shell or
     # dispatched worker into tests; otherwise tests can write fake tasks to
     # the real ~/.hermes/kanban.db instead of the per-test HERMES_HOME.
+    #
+    # Kept for documentation value and as the historical reproduction of
+    # D-055 — the generic autouse scrub below (_scrub_inherited_kanban_env)
+    # covers the whole HERMES_KANBAN_ prefix, these six names included.
     "HERMES_KANBAN_DB",
     "HERMES_KANBAN_BOARD",
     "HERMES_KANBAN_WORKSPACES_ROOT",
@@ -289,8 +293,42 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
 })
 
 
+# ── Kanban env scrub (default-deny) ────────────────────────────────────────
+#
+# A dispatched worker inherits board-injected env vars: HERMES_KANBAN_TASK,
+# HERMES_KANBAN_RUN_ID, HERMES_KANBAN_CLAIM_LOCK, the path pins, and
+# whatever the dispatcher learns to inject next. Any of them changes what a
+# tool handler considers "the current task" (see tools/kanban_tools.py
+# ``_default_task_id`` / ``_worker_run_id``), so tests that touch the kanban
+# tools silently act on the developer's live board instead of the fake one.
+#
+# The named pins in _HERMES_BEHAVIORAL_VARS are an allowlist and are
+# structurally always one dispatcher variable behind (D-055/L-067). This
+# fixture is the generic gate: every name under the HERMES_KANBAN_ prefix
+# that is set when the fixtures run is unset for the test body.
+#
+# Tests that need a kanban value set it themselves *after* fixture setup
+# (e.g. the ``worker_env`` fixture in tests/tools/test_kanban_tools.py sets
+# HERMES_KANBAN_TASK explicitly) — explicit is the point.
+#
+# Function scope, not session: ``monkeypatch`` is function-scoped, and the
+# env must be restored per test so a test that sets HERMES_KANBAN_* cannot
+# shadow its neighbours inside the same long-lived xdist worker. A
+# session-scoped scrub would also blank values a test legitimately sets,
+# because session fixtures cannot interleave with function-scoped ones.
+HERMES_KANBAN_ENV_PREFIX = "HERMES_KANBAN_"
+
+
 @pytest.fixture(autouse=True)
-def _hermetic_environment(tmp_path, monkeypatch):
+def _scrub_inherited_kanban_env(monkeypatch):
+    """Default-deny: drop every inherited ``HERMES_KANBAN_*`` env var."""
+    for name in [n for n in os.environ if n.startswith(HERMES_KANBAN_ENV_PREFIX)]:
+        monkeypatch.delenv(name, raising=False)
+    return None
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_environment(tmp_path, monkeypatch, _scrub_inherited_kanban_env):
     """Blank out all credential/behavioral env vars so local and CI match.
 
     Also redirects HOME and HERMES_HOME to per-test tempdirs so code that
@@ -303,6 +341,8 @@ def _hermetic_environment(tmp_path, monkeypatch):
             monkeypatch.delenv(name, raising=False)
 
     # 2. Blank behavioral HERMES_* vars that could change test semantics.
+    #    (Kanban vars are already gone via _scrub_inherited_kanban_env,
+    #    which this fixture depends on to guarantee ordering.)
     for name in _HERMES_BEHAVIORAL_VARS:
         monkeypatch.delenv(name, raising=False)
 
