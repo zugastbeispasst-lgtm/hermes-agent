@@ -403,6 +403,21 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
     p_complete.add_argument("--metadata", default=None,
                             help='JSON dict of structured facts (e.g. \'{"changed_files": [...], '
                                  '"tests_run": 12}\'). Stored on the closing run.')
+    p_complete.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Override the qa verdict-binding gate (§2.4). Requires "
+             "--force-reason. Human/CEO escape hatch only — records a "
+             "completion_override event. Never use it to paper over a "
+             "missing handoff.",
+    )
+    p_complete.add_argument(
+        "--force-reason",
+        default=None,
+        help="Justification recorded in the completion_override event. "
+             "Required with --force.",
+    )
 
     p_edit = sub.add_parser(
         "edit",
@@ -1560,19 +1575,55 @@ def _cmd_complete(args: argparse.Namespace) -> int:
         except (ValueError, json.JSONDecodeError) as exc:
             print(f"kanban: --metadata: {exc}", file=sys.stderr)
             return 2
+    force = bool(getattr(args, "force", False))
+    force_reason = getattr(args, "force_reason", None)
+    force_reason_clean = (force_reason or "").strip()
+    if force and not force_reason_clean:
+        print(
+            "kanban: --force requires --force-reason (a qa completion without "
+            "a bound verdict must be auditable)",
+            file=sys.stderr,
+        )
+        return 2
     failed: list[str] = []
     with kb.connect() as conn:
         for tid in ids:
-            if not kb.complete_task(
-                conn, tid,
-                result=args.result,
-                summary=summary,
-                metadata=metadata,
-                expected_run_id=_worker_run_id_for(tid),
-            ):
+            try:
+                ok = kb.complete_task(
+                    conn, tid,
+                    result=args.result,
+                    summary=summary,
+                    metadata=metadata,
+                    expected_run_id=_worker_run_id_for(tid),
+                    force=force,
+                    force_reason=force_reason,
+                )
+            except kb.UnboundVerdictError as exc:
+                # Non-terminal: nothing was written, the task is still
+                # running. Documented exit code 1 = rejected completion.
+                print(f"error: {exc}", file=sys.stderr)
+                print(
+                    "kanban: the task is unchanged (still in-flight). Re-run "
+                    "with --metadata containing reviewed_commit and "
+                    "head_at_finish as 40-hex SHAs, or (human/CEO only) pass "
+                    "--force --force-reason '<why>'.",
+                    file=sys.stderr,
+                )
+                failed.append(tid)
+                continue
+            except ValueError as exc:
+                print(f"kanban: {exc}", file=sys.stderr)
+                return 2
+            if not ok:
                 failed.append(tid)
                 print(f"cannot complete {tid} (unknown id or terminal state)", file=sys.stderr)
             else:
+                if force:
+                    print(
+                        f"WARNING: forced completion of {tid} — recorded event "
+                        f"completion_override (reason: {force_reason_clean})",
+                        file=sys.stderr,
+                    )
                 print(f"Completed {tid}")
     return 0 if not failed else 1
 

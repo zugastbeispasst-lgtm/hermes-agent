@@ -2376,6 +2376,74 @@ class HallucinatedCardsError(ValueError):
         )
 
 
+#: Fields a ``qa`` completion must carry to count as a verdict at all
+#: (Operating Manual §2.4 / decision D-051). Both must be 40-hex commit SHAs.
+QA_BINDING_FIELDS = ("reviewed_commit", "head_at_finish")
+
+_SHA40_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+
+
+def _qa_binding_gaps(metadata: Optional[dict]) -> tuple[list[str], list[str]]:
+    """Return ``(missing, invalid)`` for the QA verdict binding fields.
+
+    A field is *missing* when absent, ``None``, or blank. It is
+    *invalid* when present but not a 40-hex SHA string. Surrounding
+    whitespace is stripped; upper/lower case hex are both accepted.
+    """
+    md = metadata if isinstance(metadata, dict) else {}
+    missing: list[str] = []
+    invalid: list[str] = []
+    for field in QA_BINDING_FIELDS:
+        raw = md.get(field)
+        if raw is None:
+            missing.append(field)
+            continue
+        if not isinstance(raw, str):
+            invalid.append(field)
+            continue
+        value = raw.strip()
+        if not value:
+            missing.append(field)
+            continue
+        if not _SHA40_RE.match(value):
+            invalid.append(field)
+    return missing, invalid
+
+
+class UnboundVerdictError(ValueError):
+    """Raised by ``complete_task`` when a ``qa`` task is completed without
+    a SHA-bound verdict (``reviewed_commit`` + ``head_at_finish``, each
+    40-hex).
+
+    The rejection is **not terminal**: no task state is mutated, so the
+    worker can fix the metadata and call ``kanban_complete`` again. Kept
+    as a ``ValueError`` subclass so existing tool-error handlers treat it
+    as a recoverable user error.
+    """
+
+    def __init__(
+        self,
+        completing_task_id: str,
+        missing: list[str],
+        invalid: list[str],
+    ):
+        self.completing_task_id = completing_task_id
+        self.missing = list(missing)
+        self.invalid = list(invalid)
+        detail: list[str] = []
+        if self.missing:
+            detail.append("missing: " + ", ".join(self.missing))
+        if self.invalid:
+            detail.append(
+                "not a 40-hex commit SHA: " + ", ".join(self.invalid)
+            )
+        super().__init__(
+            "completion blocked: qa verdict for "
+            f"{completing_task_id} is not bound to a commit "
+            f"({'; '.join(detail)})"
+        )
+
+
 def complete_task(
     conn: sqlite3.Connection,
     task_id: str,
@@ -2385,6 +2453,8 @@ def complete_task(
     metadata: Optional[dict] = None,
     created_cards: Optional[Iterable[str]] = None,
     expected_run_id: Optional[int] = None,
+    force: bool = False,
+    force_reason: Optional[str] = None,
 ) -> bool:
     """Transition ``running|ready -> done`` and record ``result``.
 
@@ -2413,8 +2483,62 @@ def complete_task(
     Any suspected phantom references are recorded as a
     ``suspected_hallucinated_references`` event. This pass is advisory
     and never blocks.
+
+    **QA verdict binding gate (§2.4 / D-051).** When the task's
+    ``assignee`` is ``qa``, completion requires ``metadata`` to carry
+    ``reviewed_commit`` *and* ``head_at_finish``, each a 40-hex commit
+    SHA. Otherwise a ``completion_blocked_unbound_verdict`` event is
+    emitted and ``UnboundVerdictError`` is raised — no state change, so
+    the worker can retry with a complete handoff. ``force=True`` (CLI
+    only, human/CEO) bypasses the gate but demands a non-empty
+    ``force_reason`` and records a ``completion_override`` event.
     """
     now = int(time.time())
+
+    # Gate: qa completions must be bound to a commit. Runs BEFORE any
+    # write txn so a rejected verdict leaves the task exactly as it was
+    # (still `running`) — the worker may simply retry with full metadata.
+    task_row = conn.execute(
+        "SELECT assignee FROM tasks WHERE id = ?", (task_id,)
+    ).fetchone()
+    if task_row is None:
+        return False
+    if str(task_row["assignee"] or "").strip().lower() == "qa":
+        missing, invalid = _qa_binding_gaps(metadata)
+        if force:
+            reason_clean = (force_reason or "").strip()
+            if not reason_clean:
+                raise ValueError(
+                    "force=True requires a non-empty force_reason: "
+                    "completing a qa task without a bound verdict needs "
+                    "an auditable justification"
+                )
+            with write_txn(conn):
+                _append_event(
+                    conn, task_id, "completion_override",
+                    {
+                        "task_id": task_id,
+                        "reason": reason_clean,
+                        "missing": missing,
+                        "assignee": "qa",
+                    },
+                )
+        elif missing or invalid:
+            preview_text = (summary or result or "").strip()
+            with write_txn(conn):
+                _append_event(
+                    conn, task_id, "completion_blocked_unbound_verdict",
+                    {
+                        "task_id": task_id,
+                        "missing": missing,
+                        "invalid": invalid,
+                        "summary_preview": (
+                            preview_text.splitlines()[0][:200]
+                            if preview_text else None
+                        ),
+                    },
+                )
+            raise UnboundVerdictError(task_id, missing, invalid)
 
     # Gate: verify created_cards BEFORE the main write txn. A rejected
     # completion still needs an auditable event, so we emit it in a

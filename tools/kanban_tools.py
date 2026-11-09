@@ -422,6 +422,34 @@ def _handle_complete(args: dict, **kw) -> str:
                     f"and either drop these ids from created_cards, or pass "
                     f"created_cards=[] to skip the card-claim check entirely."
                 )
+            except kb.UnboundVerdictError as unbound_err:
+                # §2.4 / D-051: a qa verdict must be bound to a commit.
+                # Nothing was mutated, so the worker can retry — say so
+                # explicitly, otherwise the model reads tool_error as
+                # terminal and blocks instead of fixing the metadata.
+                gaps: list[str] = []
+                if unbound_err.missing:
+                    gaps.append(
+                        "missing: " + ", ".join(unbound_err.missing)
+                    )
+                if unbound_err.invalid:
+                    gaps.append(
+                        "not a 40-hex commit SHA: "
+                        + ", ".join(unbound_err.invalid)
+                    )
+                detail = "; ".join(gaps) or "no bound verdict fields"
+                return tool_error(
+                    f"kanban_complete blocked: this is a qa task and its "
+                    f"verdict is not bound to a commit ({detail}). "
+                    f"Your task is still in-flight (no state change). "
+                    f"Retry kanban_complete with metadata containing both "
+                    f"reviewed_commit and head_at_finish, each as a full "
+                    f"40-hex commit SHA. If you cannot bind the verdict to "
+                    f"a commit, do NOT complete — call "
+                    f'kanban_block(reason="escalation-required: ...") '
+                    f"instead. Foregoing the check is a CLI-only override "
+                    f"for humans and is not available to this tool."
+                )
             if not ok:
                 return tool_error(
                     f"could not complete {tid} (unknown id or already terminal)"
